@@ -1,0 +1,6 @@
+Question,Expected Topic,Source Count,Status
+What is Amazon S3 used for?,S3,1,PASS
+What is Amazon EC2?,EC2,1,PASS
+How does AWS IAM manage access?,IAM,1,PASS
+How can I back up data using AWS S3?,S3,1,PASS
+What is the capital of France?,Unrelated,0,PASS
