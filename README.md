@@ -1,3 +1,33 @@
+
+# AWS Cloud Support Assistant
+
+A Generative AI-powered assistant that answers AWS cloud support questions using Retrieval-Augmented Generation (RAG), Gemini embeddings, and official AWS documentation.
+
+## Live Demo
+
+Try the application here: **[AWS Cloud Support Assistant]((https://aws-cloud-support-assistant.onrender.com/))**
+
+## Features
+- Retrieves relevant information from AWS documentation.
+- Uses Gemini embeddings for semantic search.
+- Generates beginner-friendly answers using Gemini.
+- Includes source links to AWS documentation.
+- Filters questions that are unrelated to the available documentation.
+
+## Technologies Used
+- Python
+- Google Gemini API
+- ChromaDB
+- Gradio
+- Retrieval-Augmented Generation (RAG)
+- BeautifulSoup
+- Render
+
+## Supported Topics
+- Amazon S3
+- Amazon EC2
+- AWS Identity and Access Management (IAM)
+
 # AWS Cloud Support Assistant using RAG
 
 An AI-powered AWS Cloud Support Assistant that answers questions about Amazon S3, Amazon EC2, and AWS Identity and Access Management (IAM) using Retrieval-Augmented Generation (RAG).
