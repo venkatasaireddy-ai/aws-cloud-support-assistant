@@ -5,9 +5,8 @@ import gradio as gr
 import chromadb
 from bs4 import BeautifulSoup
 from google import genai
-from sentence_transformers import SentenceTransformer
 
-# 1. Read Gemini API key from Render environment variables
+# 1. Read the API key from Render
 api_key = os.getenv("GEMINI_API_KEY")
 
 if not api_key:
@@ -15,14 +14,12 @@ if not api_key:
 
 gemini_client = genai.Client(api_key=api_key)
 
-# 2. Initialize embedding model and in-memory ChromaDB
-embedding_model = SentenceTransformer(
-    "sentence-transformers/all-MiniLM-L6-v2"
-)
-
+# 2. Create an in-memory vector database
 chroma_client = chromadb.Client()
+
 collection = chroma_client.create_collection(
-    name="aws_support_knowledge"
+    name="aws_support_knowledge",
+    metadata={"hnsw:space": "cosine"}
 )
 
 # 3. AWS documentation sources
@@ -32,6 +29,28 @@ AWS_URLS = [
     "https://docs.aws.amazon.com/IAM/latest/UserGuide/introduction.html",
 ]
 
+
+# 4. Generate embeddings using Gemini
+def embed_texts(texts):
+    embeddings = []
+
+    # Process small batches to limit memory usage
+    for start in range(0, len(texts), 8):
+        batch = texts[start:start + 8]
+
+        response = gemini_client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=batch
+        )
+
+        embeddings.extend(
+            [item.values for item in response.embeddings]
+        )
+
+    return embeddings
+
+
+# 5. Build the AWS knowledge base
 def build_knowledge_base():
     documents = []
     metadatas = []
@@ -42,11 +61,16 @@ def build_knowledge_base():
             response = requests.get(
                 url,
                 timeout=20,
-                headers={"User-Agent": "AWSCloudSupportAssistant/1.0"}
+                headers={
+                    "User-Agent": "AWSCloudSupportAssistant/1.0"
+                }
             )
             response.raise_for_status()
 
-            soup = BeautifulSoup(response.text, "html.parser")
+            soup = BeautifulSoup(
+                response.text,
+                "html.parser"
+            )
 
             for element in soup(
                 ["script", "style", "nav", "footer", "header"]
@@ -55,11 +79,12 @@ def build_knowledge_base():
 
             text = " ".join(soup.stripped_strings)
 
-            # Split documentation into overlapping text chunks
             chunk_size = 900
             overlap = 150
 
-            for start in range(0, len(text), chunk_size - overlap):
+            for start in range(
+                0, len(text), chunk_size - overlap
+            ):
                 chunk = text[start:start + chunk_size]
 
                 if len(chunk.strip()) < 100:
@@ -74,13 +99,11 @@ def build_knowledge_base():
 
     if not documents:
         raise RuntimeError(
-            "Could not download AWS documentation. Please retry later."
+            "Could not download AWS documentation. "
+            "Please retry later."
         )
 
-    embeddings = embedding_model.encode(
-        documents,
-        show_progress_bar=False
-    ).tolist()
+    embeddings = embed_texts(documents)
 
     collection.add(
         ids=ids,
@@ -89,23 +112,29 @@ def build_knowledge_base():
         embeddings=embeddings
     )
 
-    print(f"Loaded {len(documents)} AWS documentation chunks.")
+    print(
+        f"Loaded {len(documents)} AWS documentation chunks."
+    )
+
 
 build_knowledge_base()
 
-# 4. RAG question-answering function
+
+# 6. RAG question-answering function
 def ask_aws_assistant(question, history):
     if not question or not question.strip():
         return "Please enter an AWS question."
 
-    query_embedding = embedding_model.encode(
-        [question]
-    ).tolist()
+    query_embedding = embed_texts([question])
 
     results = collection.query(
         query_embeddings=query_embedding,
         n_results=3,
-        include=["documents", "metadatas", "distances"]
+        include=[
+            "documents",
+            "metadatas",
+            "distances"
+        ]
     )
 
     if not results["documents"] or not results["documents"][0]:
@@ -114,23 +143,24 @@ def ask_aws_assistant(question, history):
             "in the available AWS documentation."
         )
 
-    distances = results.get("distances", [[]])[0]
+    distances = results["distances"][0]
 
-    # Reject questions with weak matches
-    if not distances or min(distances) >= 1.2:
+    # Reject weak matches; this threshold may need tuning
+    if not distances or min(distances) >= 0.65:
         return (
             "I couldn't find sufficiently relevant information "
-            "in the available AWS documentation."
+            "in the available AWS documentation. "
+            "Please ask about Amazon S3, Amazon EC2, or AWS IAM."
         )
 
     context_parts = []
     sources = []
 
-    for text, metadata in zip(
+    for document, metadata in zip(
         results["documents"][0],
         results["metadatas"][0]
     ):
-        context_parts.append(text)
+        context_parts.append(document)
 
         url = metadata.get("url")
         if url and url not in sources:
@@ -144,9 +174,10 @@ You are an AWS Cloud Support Assistant.
 Answer using only the AWS documentation context below.
 If the context does not contain enough information, say so.
 Do not invent AWS configuration details.
-If the question is unrelated to AWS or the supplied documentation,
-politely explain that you can only answer questions supported
-by the available AWS documentation.
+
+If the question is unrelated to AWS or the supplied
+documentation, politely explain that you can only answer
+questions supported by the available AWS documentation.
 
 Context:
 {context}
@@ -166,12 +197,13 @@ Provide a clear, beginner-friendly answer.
 
     if sources:
         answer += "\n\n**Sources:**\n" + "\n".join(
-            f"- {source}" for source in sources
+            f"- {url}" for url in sources
         )
 
     return answer
 
-# 5. Gradio web interface
+
+# 7. Gradio web interface
 demo = gr.ChatInterface(
     fn=ask_aws_assistant,
     title="AWS Cloud Support Assistant",
@@ -188,4 +220,8 @@ demo = gr.ChatInterface(
 )
 
 if __name__ == "__main__":
-    demo.launch()
+    port = int(os.environ.get("PORT", 10000))
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=port
+    )
