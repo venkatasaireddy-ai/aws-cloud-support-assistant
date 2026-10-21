@@ -1,0 +1,7 @@
+
+gradio
+google-genai
+sentence-transformers
+chromadb
+requests
+beautifulsoup4
